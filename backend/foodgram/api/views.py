@@ -1,5 +1,6 @@
 from django.db.models import Sum
 from django.shortcuts import HttpResponse, get_object_or_404
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
@@ -7,7 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-# from api.filters import RecipeFilter
+from api.filters import RecipeFilter
 from api.permissions import IsAdminAuthorOrReadOnly
 from api.serializers import (IngredientSerializer,
                              RecipeCreateSerializer,
@@ -73,7 +74,8 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 class RecipeViewSet(viewsets.ModelViewSet):
     queryset = Recipe.objects.all()
     permission_classes = (IsAdminAuthorOrReadOnly, )
-    # filterset_class
+    filter_backends = (DjangoFilterBackend, )
+    filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
 
     def get_serializer_class(self):
