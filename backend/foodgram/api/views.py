@@ -1,5 +1,6 @@
-from django.db.models import Sum
-from django.shortcuts import HttpResponse, get_object_or_404
+from django.db.models import Count, Exists, OuterRef, Sum
+from django.http import FileResponse
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -36,13 +37,12 @@ class UserSubscribeView(APIView):
     def delete(self, request, user_id):
         author = get_object_or_404(User, id=user_id)
         if not Subscription.objects.filter(user=request.user,
-                                           author=author).exists():
-            return Response(
+                                           author=author
+                                           ).delete()[0]:
+            raise Response(
                 {'errors': 'Вы не подписаны на этого пользователя'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        Subscription.objects.get(user=request.user.id,
-                                 author=user_id).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -52,7 +52,11 @@ class UserSubscriptionsViewSet(mixins.ListModelMixin,
     serializer_class = SubscriptionsSerializer
 
     def get_queryset(self):
-        return User.objects.filter(following__user=self.request.user)
+        return User.objects.filter(
+            following__user=self.request.user
+        ).annotate(
+            recipes_count=Count('author__recipe')
+        )
 
 
 class TagViewSet(viewsets.ReadOnlyModelViewSet):
@@ -77,6 +81,17 @@ class RecipeViewSet(viewsets.ModelViewSet):
     filter_backends = (DjangoFilterBackend, )
     filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
+
+    def get_queryset(self):
+        return self.queryset.annotate(
+            is_favorited=Exists(Favorite.objects.filter(
+                recipe__pk=OuterRef('pk'),
+            ))
+        ).annotate(
+            is_in_shopping_cart=Exists(ShoppingCart.objects.filter(
+                recipe__pk=OuterRef('pk'),
+            ))
+        )
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -142,7 +157,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
             unit = ingredient['ingredient__measurement_unit']
             amount = ingredient['ingredient_amount']
             shopping_list.append(f'\n{name} - {amount}, {unit}')
-        response = HttpResponse(shopping_list, content_type='text/plain')
-        response['Content-Disposition'] = \
-            'attachment; filename="shopping_cart.txt"'
+        response = FileResponse(shopping_list, content_type='text/plain')
+        response[
+            'Content-Disposition'] = 'attachment; filename="shopping_cart.txt"'
         return response
