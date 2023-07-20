@@ -2,8 +2,8 @@ from django.db import transaction
 from djoser.serializers import UserCreateSerializer
 from djoser.serializers import UserSerializer as DjoserUserSerialiser
 from drf_base64.fields import Base64ImageField
-from recipes.models import (Favorite, Ingredient, Recipe, RecipeIngredient,
-                            ShoppingCart, Tag)
+from recipes.models import (Ingredient, Recipe, RecipeIngredient,
+                            Tag)
 from rest_framework import serializers
 from users.models import Subscription, User
 from recipes.validators import validate_tags
@@ -144,21 +144,6 @@ class RecipeReadSerializer(serializers.ModelSerializer):
                   'name', 'image',
                   'text', 'cooking_time')
 
-    def get_is_favorited(self, obj):
-        try:
-            return Favorite.objects.filter(user=self.context['request'].user,
-                                           recipe=obj).exists()
-        except Exception:
-            return False
-
-    def get_is_in_shopping_cart(self, obj):
-        try:
-            return ShoppingCart.objects.filter(
-                user=self.context['request'].user,
-                recipe=obj).exists()
-        except Exception:
-            return False
-
 
 class RecipeIngredientCreateSerializer(serializers.ModelSerializer):
     """Ингредиент и количество для создания рецепта."""
@@ -191,26 +176,37 @@ class RecipeCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f'{field} - Обязательное поле.'
                 )
-        if not obj.get('ingredients'):
+        ingredients_list = []
+        for ingredient in obj.get('recipeingredients'):
+            if ingredient.get('amount') <= 0:
+                raise serializers.ValidationError(
+                    'Количество не может быть меньше 1'
+                )
+            ingredients_list.append(ingredient.get('id'))
+        if len(set(ingredients_list)) != len(ingredients_list):
             raise serializers.ValidationError(
-                {'ingredients': 'Нужно указать минимум 1 ингредиент.'}
-            )
-        if (len({ingredient['id'] for ingredient in obj.get('ingredients')})
-           != len(obj.get('ingredients'))):
-            raise serializers.ValidationError(
-                {'ingredients': 'Ингредиенты должны быть уникальны.'}
+                'Ингредиенты должны быть уникальны.'
             )
         return obj
 
     def tags_and_ingredients_set(self, recipe, tags, ingredients):
-        recipe.tags.set(tags)
-        RecipeIngredient.objects.bulk_create(
-            [RecipeIngredient(
-                recipe=recipe,
-                ingredient=Ingredient.objects.get(pk=ingredient['id']),
-                amount=ingredient['amount']
-            ) for ingredient in ingredients]
-        )
+        for tag in tags:
+            recipe.tags.add(tag)
+            recipe.save()
+        for ingredient in ingredients:
+            if not RecipeIngredient.objects.filter(
+                    ingredient_id=ingredient['ingredient']['id'],
+                    recipe=recipe).exists():
+                recipeingredient = RecipeIngredient.objects.create(
+                    ingredient_id=ingredient['ingredient']['id'],
+                    recipe=recipe)
+                recipeingredient.amount = ingredient['amount']
+                recipeingredient.save()
+            else:
+                RecipeIngredient.objects.filter(
+                    recipe=recipe).delete()
+                recipe.delete()
+        return recipe
 
     @transaction.atomic
     def create(self, validated_data):

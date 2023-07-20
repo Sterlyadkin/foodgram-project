@@ -1,4 +1,5 @@
 from django.db.models import Count, Exists, OuterRef
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
@@ -76,20 +77,21 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class RecipeViewSet(viewsets.ModelViewSet):
-    queryset = Recipe.objects.all()
     permission_classes = (IsAuthorOrReadOnly, IsAdminUser,)
     filter_backends = (DjangoFilterBackend, )
     filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
 
     def get_queryset(self):
+        user = self.request.user
         return self.queryset.annotate(
             is_favorited=Exists(Favorite.objects.filter(
                 recipe__pk=OuterRef('pk'),
-            ))
-        ).annotate(
+                user=user
+            )),
             is_in_shopping_cart=Exists(ShoppingCart.objects.filter(
                 recipe__pk=OuterRef('pk'),
+                user=user
             ))
         )
 
@@ -102,7 +104,11 @@ class RecipeViewSet(viewsets.ModelViewSet):
             permission_classes=(IsAuthenticated,))
     def download_shopping_cart(self, request):
         """Отправка файла со списком покупок."""
-        return get_shopping_cart(self.request.user)
+        shopping_list = get_shopping_cart(self.request.user)
+        response = FileResponse(shopping_list, content_type='text/plain')
+        response[
+            'Content-Disposition'] = 'attachment; filename="shopping_cart.txt"'
+        return response
 
 
 class BaseFavoriteShoppingCartViewSet(viewsets.ModelViewSet):
@@ -116,18 +122,23 @@ class BaseFavoriteShoppingCartViewSet(viewsets.ModelViewSet):
         Метод создания модели корзины или избранных рецептов.
         """
         recipe = get_object_or_404(Recipe, id=kwargs['pk'])
-        self.model.objects.create(
-            user=request.user, recipe=recipe)
-        return Response(status=status.HTTP_201_CREATED)
+        if not self.model.objects.filter(
+            user=request.user, recipe=recipe
+        ).exists():
+            self.model.objects.create(
+                user=request.user, recipe=recipe)
+            return Response(status=status.HTTP_201_CREATED)
+        return Response(status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
         """
         Метод удаления объектов модели корзины или избранных рецептов.
         """
         recipe = get_object_or_404(Recipe, id=kwargs['pk'])
-        object = get_object_or_404(
-            self.model, user=request.user, recipe=recipe)
-        object.delete()
+        self.model.objects.filter(
+            user=request.user,
+            recipe=recipe
+        ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
