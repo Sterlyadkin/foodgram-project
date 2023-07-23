@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.filters import RecipeFilter
-from api.permissions import IsAuthorOrReadOnly, IsAdminUserOrReadOnly
+from api.permissions import IsAuthorOrReadOnly
 from api.serializers import (IngredientSerializer,
                              RecipeCreateSerializer,
                              RecipeReadSerializer, RecipeSerializer,
@@ -75,7 +75,7 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 
 class RecipeViewSet(viewsets.ModelViewSet):
     queryset = Recipe.objects.all()
-    permission_classes = [IsAuthorOrReadOnly | IsAdminUserOrReadOnly]
+    permission_classes = (IsAuthorOrReadOnly,)
     filter_backends = (DjangoFilterBackend, )
     filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
