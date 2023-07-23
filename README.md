@@ -1,9 +1,11 @@
 [![.github/workflows/main.yml](https://github.com/Sterlyadkin/foodgram-project-react/actions/workflows/main.yml/badge.svg)](https://github.com/Sterlyadkin/foodgram-project-react/actions/workflows/main.yml)
 
+```
 доменное имя: http://vsfoodgram.hopto.org
 логин администратора: admin
 пароль администратора: admin
 e-mail администратора: admin@yandex.ru
+```
 
 ## Описание проекта
 
@@ -31,7 +33,6 @@ SSH_KEY= # SSH-key компьютера, с которого будет прои
 PASSPHRASE= #Если для ssh используется фраза-пароль
 TELEGRAM_TO= #ID пользователя в Telegram
 TELEGRAM_TOKEN= #ID бота в Telegram
-
 ```
 
 Выполняем запуск:
