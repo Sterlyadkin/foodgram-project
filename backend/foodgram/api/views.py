@@ -5,12 +5,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
-from rest_framework.permissions import (AllowAny, IsAuthenticated, IsAdminUser)
+from rest_framework.permissions import (AllowAny, IsAuthenticated,)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.filters import RecipeFilter
-from api.permissions import IsAuthorOrReadOnly
+from api.permissions import IsAuthorOrReadOnly, IsAdminUserOrReadOnly
 from api.serializers import (IngredientSerializer,
                              RecipeCreateSerializer,
                              RecipeReadSerializer, RecipeSerializer,
@@ -75,7 +75,7 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 
 class RecipeViewSet(viewsets.ModelViewSet):
     queryset = Recipe.objects.all()
-    permission_classes = [IsAuthorOrReadOnly | IsAdminUser]
+    permission_classes = [IsAuthorOrReadOnly | IsAdminUserOrReadOnly]
     filter_backends = (DjangoFilterBackend, )
     filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
