@@ -18,6 +18,7 @@ class IngredientAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     list_filter = ('name',)
     empty_value_display = '-пусто-'
+    ordering = ('-pk',)
 
 
 @admin.register(Recipe)
