@@ -1,11 +1,11 @@
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Exists, OuterRef
 from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import (AllowAny, IsAuthenticated, IsAdminUser)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -54,10 +54,7 @@ class UserSubscriptionsViewSet(mixins.ListModelMixin,
 
     def get_queryset(self):
         return User.objects.filter(
-            following__user=self.request.user
-        ).annotate(
-            recipes_count=Count('author__recipe')
-        )
+            following__user=self.request.user)
 
 
 class TagViewSet(viewsets.ReadOnlyModelViewSet):
@@ -77,13 +74,16 @@ class IngredientViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class RecipeViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthorOrReadOnly, IsAdminUser,)
+    queryset = Recipe.objects.all()
+    permission_classes = [IsAuthorOrReadOnly | IsAdminUser]
     filter_backends = (DjangoFilterBackend, )
     filterset_class = RecipeFilter
     http_method_names = ['get', 'post', 'patch', 'create', 'delete']
 
     def get_queryset(self):
         user = self.request.user
+        if user.is_anonymous:
+            return self.queryset.order_by('-id')
         return self.queryset.annotate(
             is_favorited=Exists(Favorite.objects.filter(
                 recipe__pk=OuterRef('pk'),
@@ -93,7 +93,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
                 recipe__pk=OuterRef('pk'),
                 user=user
             ))
-        )
+        ).order_by('-id')
 
     def get_serializer_class(self):
         if self.action in ('list', 'retrieve'):
@@ -110,51 +110,31 @@ class RecipeViewSet(viewsets.ModelViewSet):
             'Content-Disposition'] = 'attachment; filename="shopping_cart.txt"'
         return response
 
+    @action(detail=True, methods=['post', 'delete'], name='favorite')
+    def favorite(self, request, pk):
+        if request.method == 'POST':
+            return self.add_obj(Favorite, request, pk)
+        return self.del_obj(Favorite, request, pk)
 
-class BaseFavoriteShoppingCartViewSet(viewsets.ModelViewSet):
-    """
-    Базовый вьюсет обработки модели корзины и избранных рецептов.
-    """
-    permission_classes = [IsAuthenticated]
+    @action(detail=True, methods=['post', 'delete'], name='shopping_cart')
+    def shopping_cart(self, request, pk):
+        if request.method == 'POST':
+            return self.add_obj(ShoppingCart, request, pk)
+        return self.del_obj(ShoppingCart, request, pk)
 
-    def post(self, request, *args, **kwargs):
-        """
-        Метод создания модели корзины или избранных рецептов.
-        """
-        recipe = get_object_or_404(Recipe, id=kwargs['pk'])
-        if not self.model.objects.filter(
-            user=request.user, recipe=recipe
-        ).exists():
-            self.model.objects.create(
-                user=request.user, recipe=recipe)
-            return Response(status=status.HTTP_201_CREATED)
+    def add_obj(self, model, request, pk):
+        if not model.objects.filter(user=request.user, recipe=pk).exists():
+            obj = model.objects.create(
+                user=request.user,
+                recipe=get_object_or_404(Recipe, id=pk)
+            )
+            serializer = RecipeSerializer(obj.recipe)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
-    def delete(self, request, *args, **kwargs):
-        """
-        Метод удаления объектов модели корзины или избранных рецептов.
-        """
-        recipe = get_object_or_404(Recipe, id=kwargs['pk'])
-        self.model.objects.filter(
+    def del_obj(self, model, request, pk):
+        model.objects.filter(
             user=request.user,
-            recipe=recipe
+            recipe=pk
         ).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class ShoppingCartViewSet(BaseFavoriteShoppingCartViewSet):
-    """
-    Вьюсет обработки модели корзины.
-    """
-    serializer_class = RecipeSerializer
-    queryset = ShoppingCart.objects.all()
-    model = ShoppingCart
-
-
-class FavoriteViewSet(BaseFavoriteShoppingCartViewSet):
-    """
-    Вьюсет обработки модели избранных рецептов.
-    """
-    serializer_class = RecipeSerializer
-    queryset = Favorite.objects.all()
-    model = Favorite

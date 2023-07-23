@@ -5,6 +5,7 @@ from drf_base64.fields import Base64ImageField
 from recipes.models import (Ingredient, Recipe, RecipeIngredient,
                             Tag)
 from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator
 from users.models import Subscription, User
 from recipes.validators import validate_tags
 
@@ -67,6 +68,15 @@ class SubscriptionsSerializer(serializers.ModelSerializer):
         except Exception:
             return False
 
+    def get_recipes(self, obj):
+        request = self.context.get('request')
+        limit = request.GET.get('recipes_limit')
+        recipes = obj.recipes.all()
+        if limit:
+            recipes = recipes[:int(limit)]
+        serializer = RecipeSerializer(recipes, many=True, read_only=True)
+        return serializer.data
+
     def get_recipes_count(self, obj):
         return obj.recipes.count()
 
@@ -77,26 +87,29 @@ class SubscribeAuthorSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField()
     is_subscribed = serializers.SerializerMethodField()
     recipes = RecipeSerializer(many=True, read_only=True)
+    recipes_count = serializers.SerializerMethodField()
 
     class Meta:
-        model = User
-        fields = ('email', 'id',
-                  'username', 'first_name',
-                  'last_name', 'is_subscribed',
-                  'recipes', 'recipes_count')
+        model = Subscription
+        fields = '__all__'
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Subscription.objects.all(),
+                fields=('user', 'author'),
+                message='Вы уже подписаны на этого пользователя'
+            )
+        ]
 
     def validate(self, obj):
         if (self.context['request'].user == obj):
             raise serializers.ValidationError({'errors': 'Ошибка подписки.'})
         return obj
 
-    def get_is_subscribed(self, obj):
-        try:
-            return Subscription.objects.filter(
-                user=self.context['request'].user,
-                author=obj).exists()
-        except Exception:
-            return False
+    def to_representation(self, instance):
+        request = self.context.get('request')
+        return SubscriptionsSerializer(
+            instance.author, context={'request': request}
+        ).data
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -132,8 +145,8 @@ class RecipeReadSerializer(serializers.ModelSerializer):
     tags = TagSerializer(many=True, read_only=True)
     ingredients = RecipeIngredientSerializer(
         many=True, read_only=True, source='recipeingredients')
-    is_favorited = serializers.SerializerMethodField()
-    is_in_shopping_cart = serializers.SerializerMethodField()
+    is_favorited = serializers.BooleanField(default=False)
+    is_in_shopping_cart = serializers.BooleanField(default=False)
     image = Base64ImageField()
 
     class Meta:
@@ -177,7 +190,7 @@ class RecipeCreateSerializer(serializers.ModelSerializer):
                     f'{field} - Обязательное поле.'
                 )
         ingredients_list = []
-        for ingredient in obj.get('recipeingredients'):
+        for ingredient in obj.get('ingredients'):
             if ingredient.get('amount') <= 0:
                 raise serializers.ValidationError(
                     'Количество не может быть меньше 1'
@@ -190,23 +203,14 @@ class RecipeCreateSerializer(serializers.ModelSerializer):
         return obj
 
     def tags_and_ingredients_set(self, recipe, tags, ingredients):
-        for tag in tags:
-            recipe.tags.add(tag)
-            recipe.save()
-        for ingredient in ingredients:
-            if not RecipeIngredient.objects.filter(
-                    ingredient_id=ingredient['ingredient']['id'],
-                    recipe=recipe).exists():
-                recipeingredient = RecipeIngredient.objects.create(
-                    ingredient_id=ingredient['ingredient']['id'],
-                    recipe=recipe)
-                recipeingredient.amount = ingredient['amount']
-                recipeingredient.save()
-            else:
-                RecipeIngredient.objects.filter(
-                    recipe=recipe).delete()
-                recipe.delete()
-        return recipe
+        recipe.tags.set(tags)
+        RecipeIngredient.objects.bulk_create(
+            [RecipeIngredient(
+                recipe=recipe,
+                ingredient=Ingredient.objects.get(pk=ingredient['id']),
+                amount=ingredient['amount']
+            ) for ingredient in ingredients]
+        )
 
     @transaction.atomic
     def create(self, validated_data):
