@@ -12,7 +12,7 @@ class IsAuthorOrReadOnly(permissions.BasePermission):
                 or obj.author == request.user)
 
 
-class IsAuthorOrReadOnly(permissions.BasePermission):
+class IsAdminUserOrReadOnly(permissions.BasePermission):
     """Права доступа для автора либо алминистратора."""
     def has_permission(self, request, view):
         return (request.method in permissions.SAFE_METHODS
